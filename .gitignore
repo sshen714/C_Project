@@ -1,0 +1,10 @@
+# 忽略 Code::Blocks 自動產生的編譯資料夾
+bin/
+obj/
+
+# 忽略個人排版與相依性記錄檔
+*.layout
+*.depend
+
+# 忽略執行檔
+*.exe

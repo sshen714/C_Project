@@ -355,7 +355,7 @@ void display() {
                 drawPieceCircle(cx, cy, radius, 0.95f, 0.92f, 0.85f, selected); // 正面
 
                 int isRed = (board[i][j] <= 7);
-                float glyphSize = radius * 1.3f;
+                float glyphSize = radius * 1.0f;
                 
                 // 完全繪製中文字，移除英文備用機制
                 if (g_fontLoaded && glyphs[board[i][j]].tex != 0) {

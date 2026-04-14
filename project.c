@@ -1,9 +1,13 @@
 #define GL_SILENCE_DEPRECATION
-#include <GLUT/glut.h>
+#include <GL/glut.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <math.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 
 #define ROWS 4
 #define COLS 8
@@ -11,6 +15,96 @@
 int board[ROWS][COLS];
 int revealed[ROWS][COLS];
 const char* names[] = {"", "K", "G", "E", "R", "H", "C", "S", "k", "g", "e", "r", "h", "c", "s"};
+
+// 中文字碼點：索引 1..14 對應棋子 ID
+// 紅方(1-7): 帥 仕 相 俥 傌 炮 兵 ／ 黑方(8-14): 將 士 象 車 馬 砲 卒
+static const int cnCodepoints[15] = {
+    0,
+    0x5E25, 0x4ED5, 0x76F8, 0x4FE5, 0x508C, 0x70AE, 0x5175,
+    0x5C07, 0x58EB, 0x8C61, 0x8ECA, 0x99AC, 0x7832, 0x5352
+};
+
+typedef struct { GLuint tex; int w, h; } Glyph;
+static Glyph glyphs[15];
+static stbtt_fontinfo g_font;
+static unsigned char* g_fontBuffer = NULL;
+static int g_fontLoaded = 0;
+
+static int loadFont(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    g_fontBuffer = (unsigned char*)malloc(sz);
+    if (fread(g_fontBuffer, 1, sz, f) != (size_t)sz) { fclose(f); return 0; }
+    fclose(f);
+    int offset = stbtt_GetFontOffsetForIndex(g_fontBuffer, 0);
+    if (!stbtt_InitFont(&g_font, g_fontBuffer, offset)) return 0;
+    g_fontLoaded = 1;
+    return 1;
+}
+
+static void bakeGlyph(int idx, int codepoint) {
+    float scale = stbtt_ScaleForPixelHeight(&g_font, 96);
+    int w = 0, h = 0, xoff = 0, yoff = 0;
+    unsigned char* bm = stbtt_GetCodepointBitmap(&g_font, 0, scale, codepoint, &w, &h, &xoff, &yoff);
+    if (!bm || w <= 0 || h <= 0) { glyphs[idx].tex = 0; return; }
+
+    unsigned char* rgba = (unsigned char*)malloc(w * h * 4);
+    for (int i = 0; i < w * h; i++) {
+        rgba[i*4+0] = 255; rgba[i*4+1] = 255; rgba[i*4+2] = 255;
+        rgba[i*4+3] = bm[i];
+    }
+
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glyphs[idx].tex = tex;
+    glyphs[idx].w = w;
+    glyphs[idx].h = h;
+
+    free(rgba);
+    stbtt_FreeBitmap(bm, NULL);
+}
+
+static void bakeAllGlyphs(void) {
+    if (!g_fontLoaded) return;
+    for (int i = 1; i <= 14; i++) bakeGlyph(i, cnCodepoints[i]);
+}
+
+static void drawGlyphCentered(float cx, float cy, float maxSize, int pieceId, int isRed) {
+    if (pieceId < 1 || pieceId > 14) return;
+    Glyph* g = &glyphs[pieceId];
+    if (g->tex == 0) return;
+
+    float aspect = (float)g->w / (float)g->h;
+    float h = maxSize;
+    float w = maxSize * aspect;
+
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindTexture(GL_TEXTURE_2D, g->tex);
+
+    if (isRed) glColor4f(0.85f, 0.15f, 0.15f, 1.0f);
+    else       glColor4f(0.10f, 0.10f, 0.10f, 1.0f);
+
+    glBegin(GL_QUADS);
+        glTexCoord2f(0,0); glVertex2f(cx - w/2, cy + h/2);
+        glTexCoord2f(1,0); glVertex2f(cx + w/2, cy + h/2);
+        glTexCoord2f(1,1); glVertex2f(cx + w/2, cy - h/2);
+        glTexCoord2f(0,1); glVertex2f(cx - w/2, cy - h/2);
+    glEnd();
+
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_BLEND);
+}
 
 int state = 0; // 0: 選擇先後手, 1: 遊戲中, 2: 遊戲結束
 int turn = 0;  // 0: Player, 1: Computer
@@ -270,13 +364,13 @@ void display() {
             if (revealed[i][j]) {
                 // 翻開：象牙白正面
                 drawPieceRect(px, py, pw, ph, 0.95f, 0.92f, 0.85f, selected);
-                
-                // 繪製文字 (置中)
+
+                // 中文字 (置中、依顏色著色)
                 int isRed = (board[i][j] <= 7);
-                float tr = isRed ? 0.85f : 0.1f;
-                float tg = isRed ? 0.15f : 0.1f;
-                float tb = isRed ? 0.15f : 0.1f;
-                drawText(px + pw/2.0f - 0.035f, py - ph/2.0f - 0.03f, names[board[i][j]], tr, tg, tb, GLUT_BITMAP_TIMES_ROMAN_24);
+                float cx = px + pw * 0.5f;
+                float cy = py - ph * 0.5f;
+                float glyphSize = (ph < pw ? ph : pw) * 0.75f;
+                drawGlyphCentered(cx, cy, glyphSize, board[i][j], isRed);
             } else {
                 // 未翻開：深木色背面
                 drawPieceRect(px, py, pw, ph, 0.70f, 0.45f, 0.25f, selected);
@@ -351,8 +445,16 @@ int main(int argc, char** argv) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
     glutInitWindowSize(800, 500); // 稍微加高視窗比例讓棋盤更漂亮
-    glutCreateWindow("Mac Dark Chess - Pro UI Version");
+    glutCreateWindow("Dark Chess - Chinese UI");
     glOrtho(-1, 1, -1, 1, -1, 1);
+
+    // 載入中文字型並烘焙字形到紋理 (必須在建立 GL context 之後)
+    if (!loadFont("C:/Windows/Fonts/msjh.ttc")) {
+        fprintf(stderr, "Warning: 無法載入字型 msjh.ttc\n");
+    } else {
+        bakeAllGlyphs();
+    }
+
     glutDisplayFunc(display);
     glutMouseFunc(mouse);
     glutKeyboardFunc(keyboard);

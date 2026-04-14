@@ -1,10 +1,17 @@
-#define GL_SILENCE_DEPRECATION
-#include <GL/glut.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
 #include <math.h>
+
+// --- 自動偵測 Mac 或 Windows 環境 ---
+#ifdef _WIN32
+    #include <windows.h>
+    #include <GL/glut.h>
+#else
+    #define GL_SILENCE_DEPRECATION
+    #include <GLUT/glut.h>
+#endif
+// ------------------------------------
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -14,14 +21,13 @@
 
 int board[ROWS][COLS];
 int revealed[ROWS][COLS];
-const char* names[] = {"", "K", "G", "E", "R", "H", "C", "S", "k", "g", "e", "r", "h", "c", "s"};
 
-// 中文字碼點：索引 1..14 對應棋子 ID
+// 中文字碼點：索引 1..14 對應棋子 ID (思源黑體支援所有字，還原正宗暗棋用字)
 // 紅方(1-7): 帥 仕 相 俥 傌 炮 兵 ／ 黑方(8-14): 將 士 象 車 馬 砲 卒
 static const int cnCodepoints[15] = {
     0,
-    0x5E25, 0x4ED5, 0x76F8, 0x4FE5, 0x508C, 0x70AE, 0x5175,
-    0x5C07, 0x58EB, 0x8C61, 0x8ECA, 0x99AC, 0x7832, 0x5352
+    0x5E25, 0x4ED5, 0x76F8, 0x4FE5, 0x508C, 0x70AE, 0x5175, 
+    0x5C07, 0x58EB, 0x8C61, 0x8ECA, 0x99AC, 0x7832, 0x5352  
 };
 
 typedef struct { GLuint tex; int w, h; } Glyph;
@@ -106,15 +112,14 @@ static void drawGlyphCentered(float cx, float cy, float maxSize, int pieceId, in
     glDisable(GL_BLEND);
 }
 
-int state = 0; // 0: 選擇先後手, 1: 遊戲中, 2: 遊戲結束
-int turn = 0;  // 0: Player, 1: Computer
-int playerColor = 0; // 0: 未定, 1: 紅, 2: 黑
-int compColor = 0;   // 0: 未定, 1: 紅, 2: 黑
+int state = 0; 
+int turn = 0;  
+int playerColor = 0; 
+int compColor = 0;   
 int playerMoves = 0;
 int compMoves = 0;
-int selR = -1, selC = -1; // 玩家選中的棋子
+int selR = -1, selC = -1;
 
-// 判斷棋子陣營 (回傳 1=紅, 2=黑, 0=空)
 int getPieceColor(int p) {
     if (p == 0) return 0;
     return (p <= 7) ? 1 : 2;
@@ -123,7 +128,6 @@ int getPieceColor(int p) {
 int isPlayerPiece(int p) { return getPieceColor(p) == playerColor; }
 int isCompPiece(int p) { return getPieceColor(p) == compColor; }
 
-// 計算兩格之間的棋子數量 (給炮/包跳吃用)
 int countPiecesBetween(int r1, int c1, int r2, int c2) {
     int count = 0;
     if (r1 == r2) {
@@ -140,12 +144,10 @@ int countPiecesBetween(int r1, int c1, int r2, int c2) {
     return -1;
 }
 
-// 檢查移動或吃子是否合法
 int isValidMove(int r1, int c1, int r2, int c2) {
     if (board[r1][c1] == 0) return 0;
     int p1 = board[r1][c1];
     int p2 = board[r2][c2]; 
-    
     if (p2 != 0 && !revealed[r2][c2]) return 0;
     if (p2 != 0 && getPieceColor(p1) == getPieceColor(p2)) return 0;
 
@@ -180,13 +182,11 @@ void checkGameOver() {
     if (playerMoves >= 10 && compMoves >= 10) state = 2;
 }
 
-// 電腦回合邏輯
 void computerTurnTimer(int value) {
     if (state != 1 || turn != 1 || compMoves >= 10) return;
-
     int moved = 0;
     
-    // 1. 避開危險
+    // 1. 避險
     if (!moved && compColor != 0) {
         for (int i = 0; i < ROWS && !moved; i++) {
             for (int j = 0; j < COLS && !moved; j++) {
@@ -209,7 +209,7 @@ void computerTurnTimer(int value) {
         }
     }
 
-    // 2. 吃掉玩家棋子
+    // 2. 吃子
     if (!moved && compColor != 0) {
         for (int i = 0; i < ROWS && !moved; i++) {
             for (int j = 0; j < COLS && !moved; j++) {
@@ -252,14 +252,14 @@ void computerTurnTimer(int value) {
     }
 
     compMoves++;
-    turn = 0; // 換玩家
+    turn = 0; 
     checkGameOver();
     glutPostRedisplay();
 }
 
 void initBoard() {
     int all[32] = {1,2,2,3,3,4,4,5,5,6,6,7,7,7,7,7, 8,9,9,10,10,11,11,12,12,13,13,14,14,14,14,14};
-    srand(time(NULL));
+    srand((unsigned int)time(NULL));
     for (int i=0; i<32; i++) {
         int r = rand()%32;
         int t = all[i]; all[i] = all[r]; all[r] = t;
@@ -269,51 +269,50 @@ void initBoard() {
         for (int j=0; j<COLS; j++) { board[i][j]=all[k++]; revealed[i][j]=0; }
 }
 
-// 支援自訂顏色的文字繪製
 void drawText(float x, float y, const char* s, float r, float g, float b, void* font) {
     glColor3f(r, g, b);
     glRasterPos2f(x, y);
     while (*s) glutBitmapCharacter(font, *s++);
 }
 
-// 繪製棋子形狀與邊框的輔助函式
-void drawPieceRect(float x, float y, float w, float h, float r, float g, float b, int isSelected) {
+// 繪製圓形棋子
+void drawPieceCircle(float cx, float cy, float radius, float r, float g, float b, int isSelected) {
+    float aspect = 500.0f / 800.0f; // 修正視窗長寬比造成的橢圓變形
+    int segments = 36;
+    
     // 內部填色
     glColor3f(r, g, b);
-    glBegin(GL_QUADS);
-        glVertex2f(x, y);
-        glVertex2f(x+w, y);
-        glVertex2f(x+w, y-h);
-        glVertex2f(x, y-h);
+    glBegin(GL_POLYGON);
+    for (int i = 0; i < segments; i++) {
+        float theta = 2.0f * 3.1415926f * (float)i / (float)segments;
+        glVertex2f(cx + radius * aspect * cos(theta), cy + radius * sin(theta));
+    }
     glEnd();
 
     // 邊框與高亮
-    glLineWidth(isSelected ? 4.0 : 2.0);
-    if (isSelected) glColor3f(1.0, 0.85, 0.0); // 金黃色高亮
-    else glColor3f(0.3, 0.15, 0.0);            // 深咖啡色邊框
+    glLineWidth(isSelected ? 5.0 : 2.5);
+    if (isSelected) glColor3f(1.0f, 0.85f, 0.0f); // 金黃色高亮
+    else glColor3f(0.3f, 0.15f, 0.0f);            // 深咖啡色邊框
 
     glBegin(GL_LINE_LOOP);
-        glVertex2f(x, y);
-        glVertex2f(x+w, y);
-        glVertex2f(x+w, y-h);
-        glVertex2f(x, y-h);
+    for (int i = 0; i < segments; i++) {
+        float theta = 2.0f * 3.1415926f * (float)i / (float)segments;
+        glVertex2f(cx + radius * aspect * cos(theta), cy + radius * sin(theta));
+    }
     glEnd();
     glLineWidth(1.0);
 }
 
 void display() {
-    // 深灰色視窗背景
     glClearColor(0.15f, 0.18f, 0.20f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    // 繪製頂部狀態列背景
     glColor3f(0.1f, 0.1f, 0.15f);
     glBegin(GL_QUADS);
         glVertex2f(-1.0, 1.0); glVertex2f(1.0, 1.0);
         glVertex2f(1.0, 0.75); glVertex2f(-1.0, 0.75);
     glEnd();
 
-    // 顯示狀態列文字
     char info[100];
     void* uiFont = GLUT_BITMAP_HELVETICA_18;
     if (state == 0) {
@@ -328,52 +327,42 @@ void display() {
         drawText(-0.25, 0.85, "--- GAME OVER ---", 1, 0.3, 0.3, uiFont);
     }
 
-    // 繪製木紋棋盤底色
     glColor3f(0.82f, 0.65f, 0.40f);
     glBegin(GL_QUADS);
         glVertex2f(-0.82, 0.52); glVertex2f(0.82, 0.52);
         glVertex2f(0.82, -0.72); glVertex2f(-0.82, -0.72);
     glEnd();
 
-    // 繪製棋盤格子線
     glColor3f(0.5f, 0.3f, 0.1f);
     glLineWidth(2.0);
     glBegin(GL_LINES);
-    for(int i=0; i<=ROWS; i++) {
-        glVertex2f(-0.8, 0.5 - i*0.3); glVertex2f(0.8, 0.5 - i*0.3);
-    }
-    for(int j=0; j<=COLS; j++) {
-        glVertex2f(-0.8 + j*0.2, 0.5); glVertex2f(-0.8 + j*0.2, -0.7);
-    }
+    for(int i=0; i<=ROWS; i++) { glVertex2f(-0.8, 0.5 - i*0.3); glVertex2f(0.8, 0.5 - i*0.3); }
+    for(int j=0; j<=COLS; j++) { glVertex2f(-0.8 + j*0.2, 0.5); glVertex2f(-0.8 + j*0.2, -0.7); }
     glEnd();
 
-    // 繪製棋子
     for (int i=0; i<ROWS; i++) {
         for (int j=0; j<COLS; j++) {
             if (board[i][j] == 0) continue;
 
-            // 每格的寬高與邊界留白
             float cellW = 0.2f, cellH = 0.3f;
-            float px = -0.8f + j * cellW + 0.02f;
-            float py = 0.5f - i * cellH - 0.03f;
-            float pw = cellW - 0.04f;
-            float ph = cellH - 0.06f;
+            float cx = -0.8f + j * cellW + cellW / 2.0f;
+            float cy = 0.5f - i * cellH - cellH / 2.0f;
+            float radius = 0.125f; 
 
             int selected = (i == selR && j == selC);
 
             if (revealed[i][j]) {
-                // 翻開：象牙白正面
-                drawPieceRect(px, py, pw, ph, 0.95f, 0.92f, 0.85f, selected);
+                drawPieceCircle(cx, cy, radius, 0.95f, 0.92f, 0.85f, selected); // 正面
 
-                // 中文字 (置中、依顏色著色)
                 int isRed = (board[i][j] <= 7);
-                float cx = px + pw * 0.5f;
-                float cy = py - ph * 0.5f;
-                float glyphSize = (ph < pw ? ph : pw) * 0.75f;
-                drawGlyphCentered(cx, cy, glyphSize, board[i][j], isRed);
+                float glyphSize = radius * 1.3f;
+                
+                // 完全繪製中文字，移除英文備用機制
+                if (g_fontLoaded && glyphs[board[i][j]].tex != 0) {
+                    drawGlyphCentered(cx, cy, glyphSize, board[i][j], isRed);
+                }
             } else {
-                // 未翻開：深木色背面
-                drawPieceRect(px, py, pw, ph, 0.70f, 0.45f, 0.25f, selected);
+                drawPieceCircle(cx, cy, radius, 0.70f, 0.45f, 0.25f, selected); // 背面
             }
         }
     }
@@ -398,13 +387,12 @@ void mouse(int button, int state_btn, int x, int y) {
         int win_w = glutGet(GLUT_WINDOW_WIDTH);
         int win_h = glutGet(GLUT_WINDOW_HEIGHT);
         
-        float normX = (float)x / win_w * 2.0 - 1.0;
-        float normY = 1.0 - (float)y / win_h * 2.0;
+        float normX = (float)x / win_w * 2.0f - 1.0f;
+        float normY = 1.0f - (float)y / win_h * 2.0f;
 
         int c = -1, r = -1;
-        // 將滑鼠座標精準映射到新的 UI 尺寸
-        if (normX >= -0.8 && normX <= 0.8) c = (normX - (-0.8)) / 0.2;
-        if (normY <= 0.5 && normY >= -0.7) r = (0.5 - normY) / 0.3;
+        if (normX >= -0.8f && normX <= 0.8f) c = (int)((normX - (-0.8f)) / 0.2f);
+        if (normY <= 0.5f && normY >= -0.7f) r = (int)((0.5f - normY) / 0.3f);
 
         if (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
             if (!revealed[r][c] && board[r][c] != 0) {
@@ -444,13 +432,33 @@ int main(int argc, char** argv) {
     initBoard();
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB);
-    glutInitWindowSize(800, 500); // 稍微加高視窗比例讓棋盤更漂亮
-    glutCreateWindow("Dark Chess - Chinese UI");
+    glutInitWindowSize(800, 500); 
+    glutCreateWindow("Dark Chess - Noto Sans UI");
     glOrtho(-1, 1, -1, 1, -1, 1);
 
-    // 載入中文字型並烘焙字形到紋理 (必須在建立 GL context 之後)
-    if (!loadFont("C:/Windows/Fonts/msjh.ttc")) {
-        fprintf(stderr, "Warning: 無法載入字型 msjh.ttc\n");
+    // 【終極修正】這裡包含了你下載的檔名，以及各種可能的備用檔名
+    // 只要你的 NotoSansTC-VariableFont_wght.ttf 有放在同個資料夾就保證萬無一失！
+    const char* fontPaths[] = {
+        "./NotoSansTC-VariableFont_wght.ttf",             // 👑 使用者下載的思源黑體 (第一優先)
+        "./myfont.ttf",                                   // 本地自行改名的備用字型
+        "/System/Library/Fonts/PingFang.ttc",             // Mac 蘋方體 (系統備用)
+        "/System/Library/Fonts/Supplemental/Songti.ttc",  // Mac 宋體 (系統備用)
+        "C:\\Windows\\Fonts\\msjh.ttc",                   // Win 微軟正黑體 (系統備用)
+        "C:\\Windows\\Fonts\\simhei.ttf"                  // Win 黑體 (系統備用)
+    };
+    
+    int loaded = 0;
+    // 逐一尋找陣列中的字型，直到找到一個能成功載入的為止
+    for (int i = 0; i < 6; i++) {
+        if (loadFont(fontPaths[i])) {
+            printf("成功載入字型: %s\n", fontPaths[i]);
+            loaded = 1;
+            break;
+        }
+    }
+
+    if (!loaded) {
+        fprintf(stderr, "Error: 無法載入任何中文字型！請確認字型檔案是否有放在與程式相同的目錄下。\n");
     } else {
         bakeAllGlyphs();
     }
